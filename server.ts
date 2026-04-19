@@ -547,6 +547,24 @@ async function main() {
 
   process.on("SIGINT", cleanup);
   process.on("SIGTERM", cleanup);
+  process.on("SIGHUP", cleanup);
+
+  // Parent (Claude Code) closes stdin when it exits — exit with it.
+  process.stdin.on("end", cleanup);
+  process.stdin.on("close", cleanup);
+
+  // Watchdog: if our parent dies uncleanly we get reparented to launchd (PID 1).
+  // Poll PPID and exit when that happens, so orphans can't accumulate.
+  const initialPpid = process.ppid;
+  const ppidWatchdog = setInterval(() => {
+    const currentPpid = process.ppid;
+    if (currentPpid === 1 || (initialPpid !== 1 && currentPpid !== initialPpid)) {
+      log(`Parent gone (ppid ${initialPpid} -> ${currentPpid}), exiting`);
+      clearInterval(ppidWatchdog);
+      cleanup();
+    }
+  }, 5000);
+  ppidWatchdog.unref?.();
 }
 
 main().catch((e) => {
